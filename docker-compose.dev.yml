@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gh_notify_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-notify_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-notify_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-notify_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-notify_user} -d ${POSTGRES_DB:-notify_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: gh_notify_redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-redis_pass} --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_pass}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: gh_notify_mailpit
+    restart: unless-stopped
+    ports:
+      - "${SMTP_PORT:-1025}:1025"   # SMTP (используется приложением)
+      - "8025:8025"                  # Web UI для просмотра писем
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_DATABASE: /data/mailpit.db
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    volumes:
+      - mailpit_data:/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: gh_notify_app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    env_file:
+      - .env
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    volumes:
+      - .:/app
+      - /app/vendor
+
+volumes:
+  postgres_data:
+  redis_data:
+  mailpit_data:
+
+networks:
+  default:
+    name: gh_notify_dev_network

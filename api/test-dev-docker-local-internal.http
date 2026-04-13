@@ -1,0 +1,171 @@
+# GitHub Release Notification API — тестові HTTP-запити
+# Сумісно з: JetBrains HTTP Client (GoLand) / VS Code REST Client
+# Запускати: docker-compose -f docker-compose.dev.yml up --build
+# Mailpit UI (перегляд листів): http://localhost:8025
+
+@baseUrl = http://localhost:8080
+@contentType = application/json
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 0. HEALTH CHECK
+# ─────────────────────────────────────────────────────────────────────────────
+
+### Перевірка що сервер живий
+GET {{baseUrl}}/health
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. SUBSCRIBE  —  POST /api/subscribe
+# ─────────────────────────────────────────────────────────────────────────────
+
+### ✅ Успішна підписка (golang/go — популярне репо, гарантовано існує)
+POST {{baseUrl}}/api/subscribe
+Content-Type: {{contentType}}
+
+{
+  "email": "test@example.com",
+  "repo": "golang/go"
+}
+
+###
+
+### ✅ Підписка на інше репо тим самим email
+POST {{baseUrl}}/api/subscribe
+Content-Type: {{contentType}}
+
+{
+  "email": "test@example.com",
+  "repo": "go-chi/chi"
+}
+
+###
+
+### ✅ Інший підписник на те саме репо
+POST {{baseUrl}}/api/subscribe
+Content-Type: {{contentType}}
+
+{
+  "email": "another@example.com",
+  "repo": "golang/go"
+}
+
+###
+
+### ❌ 409 — дублікат підписки (повторний запит)
+POST {{baseUrl}}/api/subscribe
+Content-Type: {{contentType}}
+
+{
+  "email": "test@example.com",
+  "repo": "golang/go"
+}
+
+###
+
+### ❌ 404 — репозиторій не існує на GitHub
+POST {{baseUrl}}/api/subscribe
+Content-Type: {{contentType}}
+
+{
+  "email": "test@example.com",
+  "repo": "this-owner/this-repo-does-not-exist-xyz-404"
+}
+
+###
+
+### ❌ 400 — невалідний формат repo (без slash)
+POST {{baseUrl}}/api/subscribe
+Content-Type: {{contentType}}
+
+{
+  "email": "test@example.com",
+  "repo": "invalid-repo-format"
+}
+
+###
+
+### ❌ 400 — невалідний email
+POST {{baseUrl}}/api/subscribe
+Content-Type: {{contentType}}
+
+{
+  "email": "not-an-email",
+  "repo": "golang/go"
+}
+
+###
+
+### ❌ 400 — порожнє тіло
+POST {{baseUrl}}/api/subscribe
+Content-Type: {{contentType}}
+
+{}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. CONFIRM  —  GET /api/confirm/{token}
+# Токен отримай з Mailpit: http://localhost:8025
+# або з БД: SELECT token FROM subscriptions LIMIT 5;
+# ─────────────────────────────────────────────────────────────────────────────
+
+### ✅ Підтвердження підписки (підстав реальний токен з Mailpit)
+# @prompt token Вставте токен з листа підтвердження
+GET {{baseUrl}}/api/confirm/{{token}}
+
+###
+
+### ❌ 404 — неіснуючий токен
+GET {{baseUrl}}/api/confirm/00000000-0000-0000-0000-000000000000
+
+###
+
+### ❌ 400 — невалідний UUID (не той формат)
+GET {{baseUrl}}/api/confirm/not-a-valid-uuid-at-all
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. SUBSCRIPTIONS  —  GET /api/subscriptions?email={email}
+# ─────────────────────────────────────────────────────────────────────────────
+
+### ✅ Список підписок для email
+GET {{baseUrl}}/api/subscriptions?email=test@example.com
+
+###
+
+### ✅ Список підписок для другого email
+GET {{baseUrl}}/api/subscriptions?email=another@example.com
+
+###
+
+### ✅ Email без підписок — порожній масив []
+GET {{baseUrl}}/api/subscriptions?email=nobody@example.com
+
+###
+
+### ❌ 400 — email не вказано
+GET {{baseUrl}}/api/subscriptions
+
+###
+
+### ❌ 400 — невалідний email
+GET {{baseUrl}}/api/subscriptions?email=not-valid
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. UNSUBSCRIBE  —  GET /api/unsubscribe/{token}
+# Токен є у кожному листі про реліз (або лист підтвердження)
+# ─────────────────────────────────────────────────────────────────────────────
+
+### ✅ Відписка (підстав реальний токен)
+# @prompt unsubToken Вставте токен відписки
+GET {{baseUrl}}/api/unsubscribe/{{unsubToken}}
+
+###
+
+### ❌ 404 — неіснуючий токен
+GET {{baseUrl}}/api/unsubscribe/00000000-0000-0000-0000-000000000000
+
+###
+
+### ❌ 400 — невалідний формат токену
+GET {{baseUrl}}/api/unsubscribe/bad-token
